@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # 备份调度器
+  backup_scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: openclaw200_scheduler
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres_password_2026@db:5432/rao5201_db
+      REDIS_URL: redis://redis:6379/0
+      BACKUP_DIR: /backups
+      ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts
+      - ./config:/config
+    networks:
+      - openclaw200_network
+    restart: unless-stopped
+
+  # 备份 Web UI
+  backup_web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: openclaw200_web
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres_password_2026@db:5432/rao5201_db
+      BACKUP_DIR: /backups
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backups:/backups:ro
+    depends_on:
+      - backup_scheduler
+    networks:
+      - openclaw200_network
+    restart: unless-stopped
+
+  # 云同步服务
+  cloud_sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
+    container_name: openclaw200_sync
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-rao5201-backups}
+      SYNC_SCHEDULE: ${SYNC_SCHEDULE:-0 4 * * *}
+    volumes:
+      - ./backups:/backups:ro
+      - ./config/s3.yml:/config/s3.yml:ro
+    networks:
+      - openclaw200_network
+    restart: unless-stopped
+
+  # 监控服务
+  backup_monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    container_name: openclaw200_monitor
+    environment:
+      BACKUP_DIR: /backups
+      ALERT_EMAIL: ${ALERT_EMAIL:-rao5201@126.com}
+      ALERT_WEBHOOK: ${ALERT_WEBHOOK:-}
+    volumes:
+      - ./backups:/backups:ro
+      - ./monitoring:/monitoring
+    networks:
+      - openclaw200_network
+    restart: unless-stopped
+
+networks:
+  openclaw200_network:
+    driver: bridge
+
+volumes:
+  backups:
